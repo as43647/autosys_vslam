@@ -1,0 +1,5 @@
+__pycache__/
+accelerated_features/
+rgbd_dataset_freiburg3_walking_xyz/
+xfeat/
+*.mp4

@@ -1,0 +1,10 @@
+numpy 
+opencv-python 
+torch 
+torchvision 
+scipy 
+open3d 
+ultralytics 
+onnxruntime-gpu
+tqdm
+matplotlib
