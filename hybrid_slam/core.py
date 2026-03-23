@@ -47,6 +47,7 @@ class BaseRGBDSLAM:
         self.keyframes = []
         self.current_pose = np.eye(4)
         self.traj_log = []
+        self.pose_history = []
 
         self.vis = o3d.visualization.Visualizer()
         self.vis.create_window("Trajectory", 1024, 768)
@@ -204,6 +205,8 @@ class BaseRGBDSLAM:
                                 f"{ts} {t[0]} {t[1]} {t[2]} {q[0]} {q[1]} {q[2]} {q[3]}"
                             )
 
+            self.pose_history.append((ts, self.current_pose.copy()))
+
             pnp_times.append((time.time() - t_p_s) * 1000)
 
             dt_total = (time.time() - t_frame_start) * 1000
@@ -291,5 +294,22 @@ class BaseRGBDSLAM:
         self.vis.update_renderer()
 
     def save_results(self):
-        with open("camera_trajectories_walking_testH.txt", "w", encoding="utf-8") as f:
-            f.write("\n".join(self.traj_log))
+        output_path = self.get_trajectory_output_path()
+        lines = self.format_trajectory_lines()
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+
+    def get_trajectory_output_path(self):
+        if self.args.trajectory_output:
+            return self.args.trajectory_output
+        return "camera_trajectories_walking_testH.txt"
+
+    def format_trajectory_lines(self):
+        if self.pose_history:
+            lines = []
+            for ts, pose in self.pose_history:
+                q = R.from_matrix(pose[:3, :3]).as_quat()
+                t = pose[:3, 3]
+                lines.append(f"{ts} {t[0]} {t[1]} {t[2]} {q[0]} {q[1]} {q[2]} {q[3]}")
+            return lines
+        return self.traj_log

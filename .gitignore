@@ -4,3 +4,5 @@ rgbd_dataset_freiburg3_walking_xyz/
 xfeat/
 *.mp4
 camera_trajectories_walking_testH.txt
+00/
+yolo11n-seg.pt
