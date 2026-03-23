@@ -33,7 +33,7 @@ def build_parser():
     parser.add_argument("--depth_input_height", type=int, default=256)
     parser.add_argument("--min_depth_m", type=float, default=0.1)
     parser.add_argument("--max_depth_m", type=float, default=50.0) # 8.0
-    parser.add_argument("--baseline", type=float, default=0.1)
+    parser.add_argument("--baseline", type=float, default=0.54) # 0.1
 
     # 相機內參
     # parser.add_argument("--fx", type=float, default=823.0409)
@@ -44,6 +44,6 @@ def build_parser():
     parser.add_argument("--fy", type=float, default=718.856)
     parser.add_argument("--cx", type=float, default=607.1928)
     parser.add_argument("--cy", type=float, default=185.2157)
-    parser.add_argument("--trajectory_output", type=str, default=None)
+    parser.add_argument("--trajectory_output", type=str, default="kitti_00.txt")
 
     return parser
