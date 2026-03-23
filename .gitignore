@@ -6,3 +6,4 @@ xfeat/
 camera_trajectories_walking_testH.txt
 00/
 yolo11n-seg.pt
+kitti_trajectory.txt
