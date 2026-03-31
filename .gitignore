@@ -2,3 +2,4 @@ __pycache__/
 autosys/
 video/
 trajectory/
+kitti/
