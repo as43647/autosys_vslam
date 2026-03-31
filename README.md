@@ -1,18 +1,18 @@
 # AutoSys Hybrid SLAM
 
-這個專案實作一套以 RGB 為主、深度為輔的 Hybrid SLAM 流程，整合了：
+這個專案是一套以 RGB 影像為主、深度資訊為輔的 Hybrid SLAM 系統，整合了：
 
-- YOLO segmentation，用來排除動態物體區域
-- XFeat 特徵點與描述子
-- PnP + RANSAC 相機位姿估計
-- ONNX 深度模型，或資料集提供的深度 / 雙目深度
-- Open3D 即時軌跡視覺化
+- YOLO segmentation：排除動態物體區域
+- XFeat：特徵點與描述子提取
+- PnP + RANSAC：相機位姿估計
+- ONNX depth model / dataset depth / stereo depth：深度來源
+- Open3D：即時軌跡視覺化
 
-目前程式入口支援 3 種模式：
+目前入口支援 3 種模式：
 
-- `camera`: 即時攝影機輸入
-- `tum`: TUM RGB-D dataset
-- `kitti`: KITTI odometry sequence
+- `camera`：即時攝影機
+- `tum`：TUM RGB-D dataset
+- `kitti`：KITTI odometry sequence
 
 ## Project Structure
 
@@ -20,6 +20,7 @@
 .
 |-- main.py
 |-- README.md
+|-- requirements.txt
 |-- .gitignore
 |-- hybrid_slam/
 |   |-- __init__.py
@@ -33,48 +34,55 @@
 |   |-- depth.py
 |   |-- features.py
 |   `-- segment.py
+|-- modules/
+|   `-- xfeat.py
+|-- camera_calibration/
+|   |-- camera_calibration.py
+|   `-- checkerboard.jpg
 |-- depth_model/
 |   `-- autosys_mdepth_optm.onnx
 |-- yolo/
 |   `-- yolo11n-seg.pt
-|-- camera_calibration/
-|   |-- camera_calibration.py
-|   `-- checkerboard.jpg
 |-- kitti/
 |   |-- kitti_eval.py
-|   `-- kitti_video.py
-|-- tum/
+|   |-- kitti_video.py
+|   `-- pose/
+|       `-- ...
+|-- kitti_evaluation/
+|   |-- evaluate_odometry.cpp
+|   |-- evaluate_odometry.py
+|   |-- matrix.cpp
+|   |-- matrix.h
+|   `-- mail.h
+|-- tum_evaluation/
 |   |-- associate.py
 |   |-- ate.py
 |   `-- rpe.py
-|-- cpp/
-|   |-- evaluate_odometry.cpp
-|   `-- evaluate_odometry.py
 |-- trajectory/
 `-- video/
 ```
 
-## How It Works
+## Pipeline Overview
 
-每張影像大致會經過以下流程：
+每張影像的主要流程如下：
 
-1. 取得 RGB 畫面，以及對應深度來源
-2. 用 YOLO segmentation 找出動態物體遮罩
+1. 讀取 RGB 影像與對應深度來源
+2. 用 YOLO segmentation 取得動態遮罩
 3. 在靜態區域上抽取 XFeat 特徵
-4. 以前一個 keyframe 的 3D 點和目前 2D 點做 PnP
-5. 更新相機軌跡，輸出影片與 trajectory 檔案
+4. 使用前一個 keyframe 的 3D 點與當前 2D 點做 PnP
+5. 更新相機姿態並輸出 trajectory 與影片
 
-不同模式的深度來源如下：
+不同模式的深度來源：
 
-- `camera`: 使用 ONNX 深度模型推論 disparity，再換算成 depth
-- `tum --use_gt_depth`: 直接使用資料集 ground-truth depth
-- `tum`: 使用 ONNX 深度模型
-- `kitti --kitti_depth_source model`: 使用 ONNX 深度模型
-- `kitti --kitti_depth_source stereo`: 使用左右影像做 StereoSGBM 深度
+- `camera`：ONNX depth model
+- `tum --use_gt_depth`：TUM ground-truth depth
+- `tum`：ONNX depth model
+- `kitti --kitti_depth_source model`：ONNX depth model
+- `kitti --kitti_depth_source stereo`：StereoSGBM 雙目深度
 
 ## Environment Setup
 
-目前倉庫已提供 `requirements.txt`，建議直接建立虛擬環境後安裝。
+建議使用虛擬環境：
 
 ```powershell
 python -m venv .venv
@@ -82,13 +90,13 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-如果你要使用 GPU：
+如果要使用 GPU：
 
-- YOLO segmentation 目前要求 `PyTorch CUDA` 可用，否則程式會在啟動時直接拋錯
-- ONNX depth 會優先嘗試 `CUDAExecutionProvider`，失敗時才 fallback 到 CPU
-- `requirements.txt` 內有註解提醒：若要使用 GPU，建議另外安裝對應版本的 CUDA-enabled PyTorch wheel
+- YOLO segmentation 目前要求 `PyTorch CUDA` 可用
+- ONNX Runtime 會優先嘗試 `CUDAExecutionProvider`
+- `requirements.txt` 內也有註解提醒如何安裝 CUDA 版 PyTorch
 
-`FeatureExtractor` 會優先使用本地的 `modules.xfeat`，若匯入失敗，才退回 `torch.hub` 載入 XFeat。第一次走 `torch.hub` 時可能需要網路。
+`FeatureExtractor` 會優先使用本地的 `modules.xfeat`；若匯入失敗，才退回 `torch.hub` 載入 XFeat。
 
 ## Required Files
 
@@ -97,29 +105,27 @@ pip install -r requirements.txt
 - `depth_model/autosys_mdepth_optm.onnx`
 - `yolo/yolo11n-seg.pt`
 
-另外，不同模式還需要對應資料：
+資料需求：
 
-- `tum`: 資料夾內需要 `associations.txt`
-- `kitti`: sequence 資料夾內需要 `calib.txt` 與左影像資料夾
-- `kitti --kitti_depth_source stereo`: 還需要右影像資料夾，預設為 `image_3`
+- `tum`：資料夾內需要 `associations.txt`
+- `kitti`：sequence 資料夾內需要 `calib.txt` 和左影像資料夾
+- `kitti --kitti_depth_source stereo`：還需要右影像資料夾，預設為 `image_3`
 
 ## Run
 
-專案入口是：
+入口：
 
 ```powershell
 python .\main.py
 ```
 
-### 1. Camera Mode
-
-最基本執行方式：
+### Camera Mode
 
 ```powershell
 python .\main.py --input_mode camera
 ```
 
-指定攝影機解析度：
+指定解析度：
 
 ```powershell
 python .\main.py --input_mode camera --cam_width 640 --cam_height 480
@@ -131,7 +137,7 @@ python .\main.py --input_mode camera --cam_width 640 --cam_height 480
 python .\main.py --input_mode camera --fx 823.0409 --fy 825.8716 --cx 330.1168 --cy 231.5212
 ```
 
-### 2. TUM Mode
+### TUM Mode
 
 使用 ground-truth depth：
 
@@ -139,15 +145,15 @@ python .\main.py --input_mode camera --fx 823.0409 --fy 825.8716 --cx 330.1168 -
 python .\main.py --input_mode tum --dataset_path D:\dataset\tum\rgbd_dataset_freiburg3_walking_xyz --use_gt_depth
 ```
 
-使用模型推論深度：
+使用模型深度：
 
 ```powershell
 python .\main.py --input_mode tum --dataset_path D:\dataset\tum\rgbd_dataset_freiburg3_walking_xyz
 ```
 
-### 3. KITTI Mode
+### KITTI Mode
 
-使用模型推論深度：
+使用模型深度：
 
 ```powershell
 python .\main.py --input_mode kitti --dataset_path D:\dataset\kitti\sequences\00 --kitti_depth_source model
@@ -159,33 +165,37 @@ python .\main.py --input_mode kitti --dataset_path D:\dataset\kitti\sequences\00
 python .\main.py --input_mode kitti --dataset_path D:\dataset\kitti\sequences\00 --kitti_depth_source stereo
 ```
 
-如果你有 ground-truth pose 檔，也可以一起帶入：
+帶入 ground-truth pose：
 
 ```powershell
 python .\main.py --input_mode kitti --dataset_path D:\dataset\kitti\sequences\00 --kitti_pose_path D:\dataset\kitti\poses\00.txt
 ```
 
-## Important CLI Arguments
+指定輸出：
 
-`hybrid_slam/cli.py` 目前主要參數如下。
+```powershell
+python .\main.py --input_mode kitti --dataset_path D:\dataset\kitti\sequences\00 --trajectory_output .\trajectory\00_model.txt --video_output .\video\00_model.mp4
+```
+
+## Important CLI Arguments
 
 ### Input
 
-- `--input_mode`: `camera`、`tum`、`kitti`
-- `--dataset_path`: TUM 或 KITTI sequence 路徑
-- `--use_gt_depth`: TUM 模式下使用 ground-truth depth
+- `--input_mode`：`camera`、`tum`、`kitti`
+- `--dataset_path`：TUM 或 KITTI 資料路徑
+- `--use_gt_depth`：TUM 模式下使用 ground-truth depth
 
 ### KITTI
 
-- `--kitti_image_folder`: 左影像資料夾，預設 `image_2`
-- `--kitti_right_image_folder`: 右影像資料夾，預設 `image_3`
-- `--kitti_pose_path`: ground-truth pose 檔案
-- `--kitti_depth_source`: `model` 或 `stereo`
+- `--kitti_image_folder`：左影像資料夾，預設 `image_2`
+- `--kitti_right_image_folder`：右影像資料夾，預設 `image_3`
+- `--kitti_pose_path`：ground-truth pose 檔案
+- `--kitti_depth_source`：`model` 或 `stereo`
 
 ### Output
 
-- `--trajectory_output`: 軌跡輸出檔名，預設 `trajectory.txt`
-- `--video_output`: 輸出影片檔名，預設 `trajectory.mp4`
+- `--trajectory_output`
+- `--video_output`
 
 ### Camera
 
@@ -243,7 +253,7 @@ python .\main.py --input_mode camera --yolo_interval 4 --yolo_imgsz 256 --depth_
 
 ## Runtime Output
 
-啟動後，終端機會先印出 `RUNTIME DEVICE SUMMARY`，包含：
+啟動時會印出 `RUNTIME DEVICE SUMMARY`，包含：
 
 - `Input mode`
 - `PyTorch CUDA`
@@ -254,73 +264,74 @@ python .\main.py --input_mode camera --yolo_interval 4 --yolo_imgsz 256 --depth_
 - `YOLO imgsz`
 - `YOLO interval`
 
-流程結束後還會印出：
+結束後會輸出效能摘要：
 
 - 平均 FPS
 - mean / std / P95 latency
-- Mask / Feature / Pose 三部分耗時占比
+- Mask / Feature / Pose 各階段耗時比例
 
 ## Output Files
 
-程式目前會輸出：
+常見輸出：
 
-- 軌跡文字檔，預設 `trajectory.txt`
-- 結果影片，預設 `trajectory.mp4`
+- `trajectory/*.txt`：軌跡結果
+- `video/*.mp4`：執行影片
+- `kitti/pose/*.txt`：KITTI pose 結果
+- `kitti/pose/eval_output/`：KITTI 評估輸出圖表與統計
 
-若你沒有傳入輸出參數，`core.py` 內也保留了舊的 fallback 名稱：
+CLI 預設輸出檔名：
 
-- trajectory fallback: `camera_trajectories_walking_testH.txt`
-- video fallback: `testH.mp4`
+- `trajectory.txt`
+- `trajectory.mp4`
 
-建議直接明確指定：
+## Evaluation Tools
 
-```powershell
-python .\main.py --input_mode kitti --dataset_path D:\dataset\kitti\sequences\00 --trajectory_output .\trajectory\00_model.txt --video_output .\video\00_model.mp4
-```
+### TUM Evaluation
 
-## Evaluation Helpers
+位於 `tum_evaluation/`：
 
-倉庫內另外附了幾個評估工具：
+- `associate.py`
+- `ate.py`
+- `rpe.py`
 
-- `tum/ate.py`: 計算 Absolute Trajectory Error
-- `tum/rpe.py`: 計算 Relative Pose Error
-- `kitti/kitti_eval.py`: KITTI 相關評估輔助
-- `cpp/evaluate_odometry.py`: odometry 評估腳本
+### KITTI Evaluation
 
-如果要做 KITTI 影片整理，也可以使用：
+位於 `kitti_evaluation/`：
 
-- `kitti/kitti_video.py`
+- `evaluate_odometry.cpp`
+- `evaluate_odometry.py`
+
+另外 `kitti/` 內也保留：
+
+- `kitti_eval.py`
+- `kitti_video.py`
 
 ## Camera Calibration
 
-若你要先校正相機內參，可以執行：
+可使用內建校正工具：
 
 ```powershell
 python .\camera_calibration\camera_calibration.py
 ```
 
-完成後把得到的 `fx`, `fy`, `cx`, `cy` 帶回 `main.py` 執行參數即可。
+完成後將得到的 `fx`、`fy`、`cx`、`cy` 帶回執行參數即可。
 
-## Notes And Known Issues
+## Notes
 
-- `README` 這次已依照目前程式碼更新，但部分程式內的 `print` 訊息仍有編碼異常，不影響核心流程
-- `TUMDatasetLoader` 目前用 `utf-16` 讀取 `associations.txt`，如果你的檔案實際不是這個編碼，會讀取失敗
-- `YoloMaskTracker` 目前硬性要求 CUDA；即使其他模組可在 CPU 跑，YOLO 這段仍會中止
-- `trajectory_output` 與 `video_output` 在 CLI 裡有預設值，因此大多數情況下會直接輸出成 `trajectory.txt` 與 `trajectory.mp4`
-- `kitti_pose_path` 目前會被 loader 載入，但主流程沒有直接拿來做誤差計算
+- `TUMDatasetLoader` 目前以 `utf-16` 讀取 `associations.txt`，若資料檔編碼不同可能需要調整
+- `YoloMaskTracker` 目前要求 CUDA；若沒有可用的 PyTorch CUDA，程式會直接停止
+- `kitti_pose_path` 目前由 loader 載入，但主流程沒有直接做誤差比對
+- `kitti/` 現在同時包含工具腳本與輸出資料；若之後持續整理，建議把 script 與 output 再切得更乾淨
 
-## Suggested .gitignore Items
+## Git Ignore Suggestions
 
-目前 `.gitignore` 已忽略：
+目前專案常見需要忽略的內容：
 
+- `autosys/`
+- `.venv/`
 - `__pycache__/`
-- `xfeat/`
 - `video/`
 - `trajectory/`
+- `kitti/`
 
-若之後要整理版本庫，通常也建議忽略：
-
-- 大型模型檔，如 `.onnx`、`.pt`
-- 執行輸出影片，如 `.mp4`
-- 臨時軌跡結果，如 `.txt`
-- 本地虛擬環境，如 `.venv/` 或 `autosys/`
+如果你未來要把 `kitti/` 裡的腳本保留在版控，但忽略輸出，建議把資料與工具分開放置。
