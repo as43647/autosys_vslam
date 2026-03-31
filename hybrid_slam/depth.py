@@ -1,8 +1,11 @@
 import os
+import time
 
 import cv2
 import numpy as np
 import onnxruntime as ort
+
+ort.preload_dlls()
 
 
 class DepthInference:
@@ -10,16 +13,30 @@ class DepthInference:
         self.input_size = input_size
         self.session = None
         self.input_name = None
+        self.warmup_seconds = None
 
         if not os.path.exists(model_path):
-            print(f"[DepthInference] 找不到模型：{model_path}")
+            print(f"[DepthInference] Model file not found: {model_path}")
             return
 
         providers = [("CUDAExecutionProvider", {"device_id": 0}), "CPUExecutionProvider"]
         self.session = ort.InferenceSession(model_path, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
-        print(f"[DepthInference] 已載入模型：{model_path}")
-        print(f"[DepthInference] 啟用 providers: {self.session.get_providers()}")
+        print(f"[DepthInference] Loaded model: {model_path}")
+        print(f"[DepthInference] Providers: {self.session.get_providers()}")
+        self._warmup()
+
+    def _warmup(self):
+        if self.session is None:
+            return
+
+        warmup_w, warmup_h = self.input_size
+        dummy = np.zeros((1, 3, warmup_h, warmup_w), dtype=np.float32)
+        print("[DepthInference] Warming up ONNX depth model on first GPU run...")
+        t0 = time.time()
+        self.session.run(None, {self.input_name: dummy})
+        self.warmup_seconds = time.time() - t0
+        print(f"[DepthInference] Warm-up finished in {self.warmup_seconds:.2f}s")
 
     def process_disparity(self, color_bgr):
         if self.session is None:
@@ -43,6 +60,7 @@ class DepthInference:
                 "requested_backend": "CUDAExecutionProvider -> CPUExecutionProvider",
                 "active_providers": [],
                 "using_gpu": False,
+                "warmup_seconds": self.warmup_seconds,
             }
 
         providers = self.session.get_providers()
@@ -51,4 +69,5 @@ class DepthInference:
             "requested_backend": "CUDAExecutionProvider -> CPUExecutionProvider",
             "active_providers": providers,
             "using_gpu": "CUDAExecutionProvider" in providers,
+            "warmup_seconds": self.warmup_seconds,
         }

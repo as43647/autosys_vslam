@@ -30,11 +30,19 @@ class BaseRGBDSLAM:
             geo_proj_step=args.geo_proj_step,
             min_depth_m=args.min_depth_m,
             max_depth_m=args.max_depth_m,
+            persistence=args.mask_persistence,
+            dilate_kernel=args.mask_dilate_kernel,
         )
-        self.depth_estimator = DepthInference(
-            args.model_path,
-            input_size=(args.depth_input_width, args.depth_input_height),
+        self.depth_estimator = None
+        use_depth_model = not (
+            (args.input_mode == "tum" and args.use_gt_depth)
+            or (args.input_mode == "kitti" and getattr(args, "kitti_depth_source", "model") == "stereo")
         )
+        if use_depth_model:
+            self.depth_estimator = DepthInference(
+                args.model_path,
+                input_size=(args.depth_input_width, args.depth_input_height),
+            )
         self.frontend = FeatureExtractor(
             max_kpts=args.max_kpts,
             match_threshold=args.match_threshold,
@@ -71,7 +79,16 @@ class BaseRGBDSLAM:
         pass
 
     def print_runtime_summary(self):
-        depth_info = self.depth_estimator.get_runtime_info()
+        if self.depth_estimator is None:
+            depth_info = {
+                "model_loaded": False,
+                "requested_backend": "disabled",
+                "active_providers": [],
+                "using_gpu": False,
+                "warmup_seconds": None,
+            }
+        else:
+            depth_info = self.depth_estimator.get_runtime_info()
         feat_info = self.frontend.get_runtime_info()
         yolo_info = self.mask_tracker.get_runtime_info()
 
@@ -87,8 +104,12 @@ class BaseRGBDSLAM:
         print(f"YOLO model device   : {yolo_info['model_device']}")
         print(f"ONNX providers      : {depth_info['active_providers']}")
         print(f"Depth using GPU     : {depth_info['using_gpu']}")
+        if depth_info.get("warmup_seconds") is not None:
+            print(f"Depth warm-up       : {depth_info['warmup_seconds']:.2f}s")
         print(f"YOLO imgsz          : {yolo_info['imgsz']}")
         print(f"YOLO interval       : {yolo_info['interval']}")
+        print(f"Mask persistence    : {yolo_info['persistence']} frames")
+        print(f"Mask dilate kernel  : {yolo_info['dilate_kernel']}")
         print("=" * 60)
 
         if not feat_info["torch_cuda_available"]:
@@ -226,7 +247,12 @@ class BaseRGBDSLAM:
             )
 
             if out_video is None:
-                out_video = cv2.VideoWriter("testH.mp4", fourcc, 20.0, (img.shape[1], img.shape[0]))
+                out_video = cv2.VideoWriter(
+                    self.get_video_output_path(),
+                    fourcc,
+                    20.0,
+                    (img.shape[1], img.shape[0]),
+                )
             out_video.write(final_view)
 
             cv2.imshow("Hybrid SLAM", final_view)
@@ -303,6 +329,11 @@ class BaseRGBDSLAM:
         if self.args.trajectory_output:
             return self.args.trajectory_output
         return "camera_trajectories_walking_testH.txt"
+
+    def get_video_output_path(self):
+        if getattr(self.args, "video_output", None):
+            return self.args.video_output
+        return "testH.mp4"
 
     def format_trajectory_lines(self):
         if self.pose_history:

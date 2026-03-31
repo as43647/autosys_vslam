@@ -1,10 +1,15 @@
-numpy 
-opencv-python 
-torch 
-torchvision 
-scipy 
-open3d 
-ultralytics 
-onnxruntime-gpu
+numpy
+opencv-python
+scipy
+open3d
 tqdm
 matplotlib
+# Install a CUDA-enabled PyTorch wheel separately when GPU is needed, e.g.
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+torch
+torchvision
+ultralytics
+onnxruntime-gpu
+kornia
+gdown
+h5py

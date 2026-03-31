@@ -14,7 +14,7 @@ class TUMDatasetLoader:
         self.timestamps = []
 
         if not os.path.exists(self.assoc_txt):
-            raise FileNotFoundError(f"請先生成 associations.txt 並放在 {dataset_path}")
+            raise FileNotFoundError(f"Missing associations.txt under {dataset_path}")
 
         with open(self.assoc_txt, "r", encoding="utf-16") as f:
             for line in f:
@@ -26,7 +26,7 @@ class TUMDatasetLoader:
                     self.image_list.append(os.path.join(dataset_path, parts[1]))
                     self.depth_list.append(os.path.join(dataset_path, parts[3]))
 
-        print(f"[Dataset] 加載了 {len(self.image_list)} 幀")
+        print(f"[Dataset] loaded {len(self.image_list)} frames")
 
     def __len__(self):
         return len(self.image_list)
@@ -47,14 +47,14 @@ class CameraLoader:
     def __init__(self, camera_id=0, width=None, height=None):
         self.cap = cv2.VideoCapture(camera_id)
         if not self.cap.isOpened():
-            raise RuntimeError(f"無法開啟相機 camera_id={camera_id}")
+            raise RuntimeError(f"Failed to open camera_id={camera_id}")
 
         if width is not None:
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         if height is not None:
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
 
-        print(f"[Camera] 相機已開啟，camera_id={camera_id}")
+        print(f"[Camera] opened camera_id={camera_id}")
 
     def get_frame(self, idx):
         del idx
@@ -70,26 +70,31 @@ class CameraLoader:
 
 
 class KITTILoader:
-    def __init__(self, sequence_path, image_folder="image_2", pose_path=None):
+    def __init__(self, sequence_path, image_folder="image_2", right_image_folder="image_3", pose_path=None):
         self.sequence_path = sequence_path
         self.image_dir = os.path.join(sequence_path, image_folder)
+        self.right_image_dir = os.path.join(sequence_path, right_image_folder)
         self.calib_path = os.path.join(sequence_path, "calib.txt")
         self.pose_path = pose_path
         self.image_list = []
+        self.right_image_list = []
         self.timestamps = []
         self.gt_poses = []
         self.K = None
+        self.has_right_images = os.path.isdir(self.right_image_dir)
 
         if not os.path.isdir(self.image_dir):
-            raise FileNotFoundError(f"找不到 KITTI 影像資料夾: {self.image_dir}")
+            raise FileNotFoundError(f"Missing KITTI image folder: {self.image_dir}")
         if not os.path.exists(self.calib_path):
-            raise FileNotFoundError(f"找不到 KITTI calib.txt: {self.calib_path}")
+            raise FileNotFoundError(f"Missing KITTI calib.txt: {self.calib_path}")
 
         self._load_images()
         self._load_intrinsics()
         self._load_gt_poses()
 
-        print(f"[KITTI] 加載了 {len(self.image_list)} 幀，image_folder={image_folder}")
+        print(f"[KITTI] loaded {len(self.image_list)} frames, image_folder={image_folder}")
+        if self.has_right_images:
+            print(f"[KITTI] stereo right folder detected: {right_image_folder}")
 
     def _load_images(self):
         valid_exts = {".png", ".jpg", ".jpeg"}
@@ -98,6 +103,8 @@ class KITTILoader:
             if ext not in valid_exts:
                 continue
             self.image_list.append(os.path.join(self.image_dir, name))
+            if self.has_right_images:
+                self.right_image_list.append(os.path.join(self.right_image_dir, name))
             self.timestamps.append(os.path.splitext(name)[0])
 
     def _load_intrinsics(self):
@@ -118,7 +125,7 @@ class KITTILoader:
                     self.K = proj.reshape(3, 4)[:, :3]
                     return
 
-        raise ValueError(f"無法從 {self.calib_path} 解析 KITTI 相機內參 P2")
+        raise ValueError(f"Could not find KITTI P2 intrinsics in: {self.calib_path}")
 
     def _load_gt_poses(self):
         if not self.pose_path or not os.path.exists(self.pose_path):
@@ -140,4 +147,7 @@ class KITTILoader:
             return None, None, None
 
         img = cv2.imread(self.image_list[idx])
-        return img, None, self.timestamps[idx]
+        aux = None
+        if self.has_right_images:
+            aux = cv2.imread(self.right_image_list[idx])
+        return img, aux, self.timestamps[idx]
